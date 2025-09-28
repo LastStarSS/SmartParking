@@ -16,6 +16,35 @@ def get_parking_slots_from_json(json_file): # json_file is the path to the JSON 
             parking_slots.append(Polygon(shape["points"]))
     return parking_slots
 
+def preprocess_image(img, target_size=640):
+    """
+    Resize and pad the input image to target_size x target_size while keeping aspect ratio.
+    Args:
+        img (nd.array): Original OpenCV image (H, W, 3)
+        target_size (int): Desired image size for YOLO input (default=640)
+    Returns:
+        padded_img (nd.array): Preprocessed image (target_size, target_size, 3)
+        ratio (float): Resize ratio (useful if you need to map detections back)
+        dwdh (tuple): Padding applied (dw, dh)
+    """
+    h, w = img.shape[:2]
+    scale = min(target_size / w, target_size / h)
+    nw, nh = int(scale * w), int(scale * h)
+
+    # Resize
+    resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
+
+    # Pad to square
+    top = (target_size - nh) // 2
+    bottom = target_size - nh - top
+    left = (target_size - nw) // 2
+    right = target_size - nw - left
+
+    padded_img = cv2.copyMakeBorder(resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114))
+
+    return padded_img, scale, (left, top)
+
+
 def object_detection(img_path):
     """
     Arguments:
@@ -26,7 +55,16 @@ def object_detection(img_path):
         orig_img: (nd.array) - Original image before any modifications.
     """
     # This function performs object detection on the input image using the specified model.
-    results = model(img_path)
+    if isinstance(img_path, str):
+        orig_img = cv2.imread(img_path)
+    else:
+        orig_img = img_path  # already an array (video frame)
+
+    # Preprocess before feeding to YOLO
+    preprocessed_img, _, _ = preprocess_image(orig_img, target_size=640)
+
+    results = model(preprocessed_img)
+
     result = results[0]  # Get the first result
     car_polygons = []
     if not result.obb:
@@ -191,6 +229,7 @@ if __name__ == "__main__":
             else:
                 print("No cars detected in the image.")
                 img = cv2.imread(img_path)
+
 
             # Save the output
             if len(img_paths) > 1:
